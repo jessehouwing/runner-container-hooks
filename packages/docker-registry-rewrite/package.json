@@ -1,0 +1,18 @@
+{
+  "name": "docker-registry-rewrite-hook",
+  "version": "0.1.0",
+  "description": "Wraps the unmodified docker container hook and rewrites image references to a configurable registry host, optionally authenticating with JFrog Artifactory via GitHub OIDC",
+  "main": "lib/index.js",
+  "scripts": {
+    "test": "jest --runInBand",
+    "build": "tsc"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.14",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.9",
+    "typescript": "^5.8.3"
+  }
+}
