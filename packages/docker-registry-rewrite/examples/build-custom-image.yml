@@ -1,0 +1,78 @@
+# Sample: build a custom GitHub-hosted runner image (based on the Ubuntu image of the
+# image-generation runner) with the docker-registry-rewrite container hook installed.
+#
+# This is a sample only. The job is disabled with `if: false` so copying it into a repository does not
+# trigger anything. Remove that line once the prerequisites below are in place.
+#
+# Prerequisites (see https://docs.github.com/actions/using-github-hosted-runners/using-larger-runners/about-custom-images):
+#   - custom images enabled for the enterprise
+#   - an image-generation larger runner, here named `image-gen-ubuntu` (create it from the Ubuntu
+#     base image, e.g. 24.04, with "image generation" enabled)
+# Repository variables (non-secret): REGISTRY_REWRITE_HOST, REGISTRY_REWRITE_RULES (JSON),
+#   and optionally REGISTRY_REWRITE_JFROG_URL, REGISTRY_REWRITE_JFROG_OIDC_PROVIDER, REGISTRY_REWRITE_JFROG_OIDC_AUDIENCE.
+# No secrets are baked into the image: the JFrog login uses the job's GitHub OIDC token at run time
+# (jobs using the image need `permissions: id-token: write`).
+#
+# Copy this file to .github/workflows/ of the repository that contains this hooks code.
+name: Build custom runner image with registry rewrite hook
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Sample guard: remove to enable.
+    if: false
+    runs-on: image-gen-ubuntu
+    snapshot: registry-rewrite-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the hooks
+        run: |
+          npm ci --prefix packages/hooklib
+          npm ci --prefix packages/docker
+          npm ci --prefix packages/docker-registry-rewrite
+          npm run build --prefix packages/hooklib
+          npm run build --prefix packages/docker
+          npm run build --prefix packages/docker-registry-rewrite
+
+      - name: Install the hooks
+        env:
+          REGISTRY_REWRITE_HOST: ${{ vars.REGISTRY_REWRITE_HOST }}
+          REGISTRY_REWRITE_RULES: ${{ vars.REGISTRY_REWRITE_RULES }}
+          REGISTRY_REWRITE_JFROG_URL: ${{ vars.REGISTRY_REWRITE_JFROG_URL }}
+          REGISTRY_REWRITE_JFROG_OIDC_PROVIDER: ${{ vars.REGISTRY_REWRITE_JFROG_OIDC_PROVIDER }}
+          REGISTRY_REWRITE_JFROG_OIDC_AUDIENCE: ${{ vars.REGISTRY_REWRITE_JFROG_OIDC_AUDIENCE }}
+        run: |
+          set -euo pipefail
+          dest=/opt/runner-hooks
+          sudo install -d -m 755 "$dest/docker/dist" "$dest/docker-registry-rewrite"
+          sudo cp -r packages/docker/dist/. "$dest/docker/dist/"
+          sudo cp -r packages/docker-registry-rewrite/lib "$dest/docker-registry-rewrite/lib"
+
+          # The launcher carries the (non-secret) configuration so no JSON has to live in an env file.
+          # The runner pipes the hook payload to stdin; exec keeps it intact.
+          {
+            echo '#!/usr/bin/env bash'
+            for name in REGISTRY_REWRITE_HOST REGISTRY_REWRITE_RULES REGISTRY_REWRITE_JFROG_URL \
+                        REGISTRY_REWRITE_JFROG_OIDC_PROVIDER REGISTRY_REWRITE_JFROG_OIDC_AUDIENCE; do
+              value="${!name:-}"
+              [ -n "$value" ] && printf 'export %s=%q\n' "$name" "$value"
+            done
+            echo "exec node $dest/docker-registry-rewrite/lib/index.js"
+          } | sudo tee "$dest/container-hook.sh" >/dev/null
+          sudo chmod 755 "$dest/container-hook.sh"
+
+          # Make the runner pick the hook up. The runner process reads its environment at start-up.
+          line="ACTIONS_RUNNER_CONTAINER_HOOKS=$dest/container-hook.sh"
+          echo "$line" | sudo tee -a /etc/environment >/dev/null
+          runner_dir=/home/runner/actions-runner
+          echo "$line" | sudo tee -a "$runner_dir/.env" >/dev/null
+          sudo chown runner:runner "$runner_dir/.env" || true
+
+      - name: Verify the install
+        run: |
+          test -x /opt/runner-hooks/container-hook.sh
+          test -f /opt/runner-hooks/docker/dist/index.js
+          test -f /opt/runner-hooks/docker-registry-rewrite/lib/index.js

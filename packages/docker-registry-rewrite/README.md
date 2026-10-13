@@ -79,6 +79,14 @@ Because the token lives in the hook state, it stays in runner memory for the job
 - Docker Hub official images (`node:22`) are rewritten to `<host>/<prefix>/node:22` without `library/`.
   Artifactory remote repositories resolve this; other registries may need a rule or `library/` path.
 
+## Custom runner image sample
+
+`examples/build-custom-image.yml` builds a custom GitHub-hosted runner image (snapshot of an Ubuntu
+image-generation runner) that installs both hooks and registers the wrapper through a small launcher
+script carrying the `REGISTRY_REWRITE_*` configuration. The job is disabled with `if: false`; remove it to use the sample.
+Whether `ACTIONS_RUNNER_CONTAINER_HOOKS` written to the runner's `.env` reaches the worker on a hosted runner
+is still to be verified.
+
 ## Tests
 
 ```sh
